@@ -1,0 +1,17 @@
+# Ignore all files in dataset and models folders
+dataset/*
+models/*
+
+# But allow Python files inside them
+!dataset/**/*.py
+!models/**/*.py
+
+# Ignore common binary/large files
+*.npy
+*.pth
+*.mp3
+
+# VSCode settings and cache
+.vscode/
+__pycache__/
+*.log
