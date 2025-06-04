@@ -1,6 +1,6 @@
-# Ignore all files in dataset and models folders
-dataset/*
-models/*
+# Ignore all files in data 
+data/audio
+data/frames
 
 # But allow Python files inside them
 !dataset/**/*.py

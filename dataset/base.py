@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.utils.data as torchdata
 from torchvision import transforms
-import torchaudio
+#import torchaudio
 import librosa
 from PIL import Image
 
@@ -157,8 +157,11 @@ class BaseDataset(torchdata.Dataset):
 
     def _load_audio_file(self, path):
         if path.endswith('.mp3'):
-            audio_raw, rate = torchaudio.load(path)
-            audio_raw = audio_raw.numpy().astype(np.float32)
+            # !!added!!
+            audio_raw, rate = librosa.load(path, sr=None, mono=True)
+            audio_raw = audio_raw.astype(np.float32)
+            #audio_raw, rate = torchaudio.load(path)
+            #audio_raw = audio_raw.numpy().astype(np.float32)
 
             # range to [-1, 1]
             audio_raw *= (2.0**-31)

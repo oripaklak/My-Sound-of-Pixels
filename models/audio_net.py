@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from dataset.base import BaseDataset
-from my_dataset.save_image import save_image # to save the image 
+#from my_dataset.save_image import save_image # to save the image 
 
 # ngf = number of generator filters 
 # The K parameter in the paper corresponds to fc_dim (same as vision_net)
@@ -126,7 +126,7 @@ class UnetBlock(nn.Module):
         else: # with skip!
             return torch.cat([x, self.model(x)], 1) # x concatenated with model(x) horizontally
         
-
+'''
 # Main function for testing the classes
 def main():
 
@@ -243,3 +243,4 @@ if __name__ == "__main__":
     main()
 
 
+'''

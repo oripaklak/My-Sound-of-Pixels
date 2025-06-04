@@ -8,7 +8,7 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 from PIL import Image
-from my_dataset.save_image import save_image # to save the image 
+#from my_dataset.save_image import save_image # to save the image 
 
 
 
@@ -156,7 +156,7 @@ class ResnetDilated(nn.Module):
 
         x = x.view(B, C)
         return x
-
+'''
 # Main function for testing the classes
 def main():
     # Parameters to load and save the image 
@@ -213,3 +213,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+'''
