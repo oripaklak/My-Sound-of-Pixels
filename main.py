@@ -572,10 +572,6 @@ if __name__ == '__main__':
     if args.mode == 'train':
         makedirs(args.ckpt, remove=True)
     elif args.mode == 'eval':
-        #!!added!!
-        #args.weights_sound = os.path.join('scripts', args.ckpt, 'sound_best.pth')
-        #args.weights_frame = os.path.join('scripts', args.ckpt, 'frame_best.pth')
-        #args.weights_synthesizer = os.path.join('scripts', args.ckpt, 'synthesizer_best.pth')
         args.weights_sound = os.path.join(args.ckpt, 'sound_best.pth')
         args.weights_frame = os.path.join(args.ckpt, 'frame_best.pth')
         args.weights_synthesizer = os.path.join(args.ckpt, 'synthesizer_best.pth')

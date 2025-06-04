@@ -89,10 +89,8 @@ class ArgParser(object):
 
         parser.add_argument('--mode', default='train',
                             help="train/eval")
-        # Modified path: data/train.csv -> scripts/data/train.csv
         parser.add_argument('--list_train',
                             default='data/train.csv')
-        # same here:
         parser.add_argument('--list_val',
                             default='data/val.csv')
         parser.add_argument('--dup_trainset', default=100, type=int,
