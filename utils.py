@@ -204,6 +204,7 @@ def combine_video_audio(src_video, src_audio, dst_video, verbose=False):
 
 # save video to the disk using ffmpeg
 def save_video(path, tensor, fps=25):
+    print(f"path: {path}")
     assert tensor.ndim == 4, 'video should be in 4D numpy array'
     L, H, W, C = tensor.shape
     writer = VideoWriter(

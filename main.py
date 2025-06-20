@@ -317,7 +317,7 @@ def evaluate(netWrapper, loader, history, epoch, args):
     sdr_meter = AverageMeter()
     sir_meter = AverageMeter()
     sar_meter = AverageMeter()
-
+    
     # initialize HTML header
     visualizer = HTMLVisualizer(os.path.join(args.vis, 'index.html'))
     header = ['Filename', 'Input Mixed Audio']
@@ -329,11 +329,17 @@ def evaluate(netWrapper, loader, history, epoch, args):
                    'GroundTruth Mask {}'.format(n)]
     header += ['Loss weighting']
     visualizer.add_header(header)
+    
     vis_rows = []
 
     for i, batch_data in enumerate(loader):
         # forward pass
         err, outputs = netWrapper.forward(batch_data, args)
+        print(batch_data.keys())
+        print(batch_data['mag_mix'].shape)
+        print(batch_data['frames'][0].shape)
+        print(batch_data['mags'][0].shape)
+        
         err = err.mean()
 
         loss_meter.update(err.item())

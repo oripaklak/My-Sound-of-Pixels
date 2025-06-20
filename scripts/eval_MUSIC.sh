@@ -3,7 +3,7 @@
 OPTS=""
 OPTS+="--mode eval "
 OPTS+="--id MUSIC-2mix-LogFreq-resnet18dilated-unet7-linear-frames3stride24-maxpool-binary-weightedLoss-channels32-epoch100-step40_80 "
-OPTS+="--list_val data/val_corrected_frame_counts.csv " # has modified
+OPTS+="--list_val data/val.csv " 
 
 # Models
 OPTS+="--arch_sound unet7 "
@@ -29,3 +29,5 @@ OPTS+="--audLen 65535 "
 OPTS+="--audRate 11025 "
 
 python -u main.py $OPTS
+# To debug the code, run this:
+# python -m pdb main.py $OPTS

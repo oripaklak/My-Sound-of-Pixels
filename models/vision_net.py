@@ -8,8 +8,6 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 from PIL import Image
-#from my_dataset.save_image import save_image # to save the image 
-
 
 
 class Resnet(nn.Module):
@@ -156,61 +154,3 @@ class ResnetDilated(nn.Module):
 
         x = x.view(B, C)
         return x
-'''
-# Main function for testing the classes
-def main():
-    # Parameters to load and save the image 
-    directory = "C:/Users/User/OneDrive/BIU/project/Sound-of-Pixels/my_dataset"
-    base_name = "guitar"
-    extension = "jpg"
-    image_path =  directory + "/" + base_name + "." + extension
-
-    # Load a pretrained ResNet model
-    from torchvision.models import ResNet18_Weights
-    original_resnet = models.resnet18(weights=ResNet18_Weights.DEFAULT)
-
-    # Load a real image from the file system
-    image = Image.open(image_path)
-
-    # Preprocess the image
-    preprocess = transforms.Compose([
-        transforms.Resize((224, 224)),          # Resize the image to 224x224
-        transforms.ToTensor(),                  # Convert to a PyTorch tensor
-        transforms.Normalize(                   # Normalize the image
-            mean=[0.485, 0.456, 0.406],         # Mean for ImageNet - same as base.py
-            std=[0.229, 0.224, 0.225]           # Std for ImageNet - same as base.py
-        )
-    ])
-    
-    # Add a batch dimension: [1, C, H, W]
-    input_tensor = preprocess(image).unsqueeze(0)  
-
-    # Create an instance of ResnetFC
-    resnet_fc = ResnetFC(original_resnet, fc_dim=16, pool_type='avgpool')
-
-    # Run the model on the image
-    output_fc = resnet_fc(input_tensor)
-    print(f"Input shape: {input_tensor.shape}")
-    print(f"Output shape (ResnetFC): {output_fc.shape}")
-
-    # Create an instance of ResnetDilated
-    resnet_dilated = ResnetDilated(original_resnet, fc_dim=16, dilate_scale=8)
-    output_dilated = resnet_dilated(input_tensor)
-    print(f"Output shape (ResnetDilated): {output_dilated.shape}")
-
-    # Plot the output features as a heatmap
-    output_fc_reshaped = output_dilated.detach().numpy().reshape(-1, 1)  # Assuming a single vector output
-    fig,ax = plt.subplots(figsize=(10, 2))
-    cax = ax.imshow(output_fc_reshaped, cmap="viridis", aspect="auto")
-    fig.colorbar(cax)
-    ax.set_title("Model Output Features")
-
-    # Save the image
-    unique_path = save_image(directory, base_name, extension) # Generate a unique file path
-    fig.savefig(unique_path)
-    plt.close(fig)
-
-
-if __name__ == "__main__":
-    main()
-'''

@@ -15,10 +15,14 @@ def find_recursive(root_dir, ext='.mp3'):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root_audio', default='./data/audio',
+    parser.add_argument('--root_audio', default='../MUSIC_dataset/data/solo/audio',
                         help="root for extracted audio files")
-    parser.add_argument('--root_frame', default='./data/frames',
+    parser.add_argument('--root_frame', default='../MUSIC_dataset/data/solo/frames',
                         help="root for extracted video frames")
+    #parser.add_argument('--root_audio', default='./data/audio',
+    #                    help="root for extracted audio files")
+    #parser.add_argument('--root_frame', default='./data/frames',
+    #                    help="root for extracted video frames")
     parser.add_argument('--fps', default=8, type=int,
                         help="fps of video frames")
     parser.add_argument('--path_output', default='./data',

@@ -15,11 +15,12 @@ class ArgParser(object):
                             help="architecture of net_frame")
         parser.add_argument('--arch_synthesizer', default='linear',
                             help="architecture of net_synthesizer")
-        parser.add_argument('--weights_sound', default='',
+        #!!added!!
+        parser.add_argument('--weights_sound', default='ckpt/MUSIC-2mix-LogFreq-resnet18dilated-unet7-linear-frames3stride24-maxpool-binary-weightedLoss-channels32-epoch100-step40_80/sound_best.pth',
                             help="weights to finetune net_sound")
-        parser.add_argument('--weights_frame', default='',
+        parser.add_argument('--weights_frame', default='ckpt/MUSIC-2mix-LogFreq-resnet18dilated-unet7-linear-frames3stride24-maxpool-binary-weightedLoss-channels32-epoch100-step40_80/frame_best.pth',
                             help="weights to finetune net_frame")
-        parser.add_argument('--weights_synthesizer', default='',
+        parser.add_argument('--weights_synthesizer', default='ckpt/MUSIC-2mix-LogFreq-resnet18dilated-unet7-linear-frames3stride24-maxpool-binary-weightedLoss-channels32-epoch100-step40_80/synthesizer_best.pth',
                             help="weights to finetune net_synthesizer")
         parser.add_argument('--num_channels', default=32, type=int,
                             help='number of channels')
@@ -86,7 +87,7 @@ class ArgParser(object):
 
     def add_train_arguments(self):
         parser = self.parser
-
+        # Maybe should default should be changed from train -> eval? 
         parser.add_argument('--mode', default='train',
                             help="train/eval")
         parser.add_argument('--list_train',

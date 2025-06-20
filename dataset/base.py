@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.utils.data as torchdata
 from torchvision import transforms
-#import torchaudio
+import torchaudio
 import librosa
 from PIL import Image
 
@@ -22,31 +22,7 @@ class BaseDataset(torchdata.Dataset):
         self.audLen = opt.audLen
         self.audSec = 1. * self.audLen / self.audRate
         self.binary_mask = opt.binary_mask
-        '''
-        # ----------------- might delete later -----------------
-        # these parametes correspond to train_MUSIC.sh (from scripts)
-        # Frames-related
-        self.num_frames = 3
-        self.stride_frames = 24
-        self.frameRate = 8
 
-        # Image-related
-        self.imgSize = 256
-
-        # Audio-related
-        self.audRate = 11025
-        self.audLen = 65535
-
-        # STFT parameters
-        self.stft_frame = 1024
-        self.stft_hop = 512
-
-        # Additional options
-        self.binary_mask = 1
-        self.log_freq = 1
-        self.seed = 42
-        # ----------------- might delete later -----------------
-        '''
         # STFT params
         self.log_freq = opt.log_freq
         self.stft_frame = opt.stft_frame
@@ -135,6 +111,7 @@ class BaseDataset(torchdata.Dataset):
 
     def _load_frame(self, path):
         img = Image.open(path).convert('RGB')
+        img.save("debug_frame.jpg") # debug
         return img
 
     def _stft(self, audio):
@@ -142,26 +119,12 @@ class BaseDataset(torchdata.Dataset):
             audio, n_fft=self.stft_frame, hop_length=self.stft_hop)
         amp = np.abs(spec)
         phase = np.angle(spec)
-        '''
-        # Apply log-frequency scaling if enabled
-        if self.log_freq:
-        # Convert linear frequency bins to log-frequency bins
-        mel_filter = librosa.filters.mel(
-            sr=self.audRate,
-            n_fft=self.stft_frame,
-            n_mels=256  # Target 256 frequency bins
-        )
-        amp = np.dot(mel_filter, amp)
-        '''
         return torch.from_numpy(amp), torch.from_numpy(phase)
 
     def _load_audio_file(self, path):
         if path.endswith('.mp3'):
-            # !!added!!
-            audio_raw, rate = librosa.load(path, sr=None, mono=True)
-            audio_raw = audio_raw.astype(np.float32)
-            #audio_raw, rate = torchaudio.load(path)
-            #audio_raw = audio_raw.numpy().astype(np.float32)
+            audio_raw, rate = torchaudio.load(path)
+            audio_raw = audio_raw.numpy().astype(np.float32)
 
             # range to [-1, 1]
             audio_raw *= (2.0**-31)
@@ -197,7 +160,9 @@ class BaseDataset(torchdata.Dataset):
             if nearest_resample:
                 audio_raw = audio_raw[::rate//self.audRate]
             else:
-                audio_raw = librosa.resample(audio_raw, rate, self.audRate)
+                # changed it according to GPT
+                audio_raw = librosa.resample(audio_raw, orig_sr=rate, target_sr=self.audRate)
+                #audio_raw = librosa.resample(audio_raw, rate, self.audRate)
 
         # crop N seconds
         len_raw = audio_raw.shape[0]
