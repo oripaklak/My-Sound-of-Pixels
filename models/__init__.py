@@ -6,7 +6,7 @@ from .synthesizer_net import InnerProd, Bias
 from .audio_net import Unet
 from .vision_net import ResnetFC, ResnetDilated
 from .criterion import BCELoss, L1Loss, L2Loss
-
+from utils import  warpgrid
 
 def activate(x, activation):
     if activation == 'sigmoid':
@@ -97,3 +97,34 @@ class ModelBuilder():
         else:
             raise Exception('Architecture undefined!')
         return net
+
+class ModelTest(torch.nn.Module):
+    def __init__(self,nets):
+        super(ModelTest,self).__init__()
+        self.net_sound, self.net_frame, self.net_synthesizer = nets
+
+    def forward(self, batch_data , args):
+        frames = batch_data["frames"] # (B, C, T, HI, WI)
+        mag = batch_data["mag"].unsqueeze(1) # (B, 1, HS, WS)
+        B = mag.size(0)
+        T = mag.size(3)
+        
+        if args.log_freq:
+            grid_warp = torch.from_numpy(warpgrid(B, 256, T, warp=True)).to(args.device)
+            mag = F.grid_sample(mag, grid_warp) # (B, 1, 256, 256)
+            mag = torch.log(mag).detach()
+
+        # 1. forward net_sound -> (B, C, HS, WS)
+        feat_sound = self.net_sound(mag)
+        feat_sound = activate(feat_sound, args.sound_activation)
+
+        # 2. forward net_frame -> (B, C, HI/16, WI/16)
+        feat_frames = self.net_frame.forward_multiframe(frames)
+        feat_frames = activate(feat_frames, args.img_activation)
+
+        # 3. sound synthesizer -> (B, HI/16, WI/16, HS, WS)
+        pred_masks = self.net_synthesizer.forward_pixelwise(feat_frames, feat_sound)
+        pred_masks = activate(pred_masks, args.output_activation)
+
+        # 4. return the audio
+        return pred_masks

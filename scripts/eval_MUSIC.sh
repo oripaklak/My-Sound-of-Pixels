@@ -29,5 +29,6 @@ OPTS+="--audLen 65535 "
 OPTS+="--audRate 11025 "
 
 python -u main.py $OPTS
-# To debug the code, run this:
-# python -m pdb main.py $OPTS
+# to run the html run this:
+# python -m http.server 8000
+

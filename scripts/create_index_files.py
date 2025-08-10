@@ -12,17 +12,34 @@ def find_recursive(root_dir, ext='.mp3'):
             files.append(os.path.join(root, filename))
     return files
 
+def create_test_index(root_audio, root_frame, fps, output_dir):
+    infos = []
+    audio_files = find_recursive(root_audio, ext='.mp3')
+
+    for audio_path in audio_files:
+        # You might want to match your frame path convention
+        frame_path = audio_path.replace(root_audio, root_frame).replace('.mp3', '.mp4')
+        frame_files = glob.glob(frame_path + '/*.jpg')
+
+        if len(frame_files) > fps * 20:
+            infos.append(','.join([audio_path, frame_path, str(len(frame_files))]))
+
+    print('{} test audio/frames pairs found.'.format(len(infos)))
+
+    filename = os.path.join(output_dir, 'test.csv')
+    with open(filename, 'w') as f:
+        for item in infos:
+            f.write(item + '\n')
+
+    print('Test index saved to {}.'.format(filename))
 
 if __name__ == '__main__':
+    '''
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_audio', default='../MUSIC_dataset/data/solo/audio',
                         help="root for extracted audio files")
     parser.add_argument('--root_frame', default='../MUSIC_dataset/data/solo/frames',
                         help="root for extracted video frames")
-    #parser.add_argument('--root_audio', default='./data/audio',
-    #                    help="root for extracted audio files")
-    #parser.add_argument('--root_frame', default='./data/frames',
-    #                    help="root for extracted video frames")
     parser.add_argument('--fps', default=8, type=int,
                         help="fps of video frames")
     parser.add_argument('--path_output', default='./data',
@@ -53,5 +70,12 @@ if __name__ == '__main__':
             for item in subset:
                 f.write(item + '\n')
         print('{} items saved to {}.'.format(len(subset), filename))
+'''
+    root_audio = '../MUSIC_dataset/data/duet/audio'
+    root_frame = '../MUSIC_dataset/data/duet/frames'
+    fps = 8
+    output_dir = './data'
 
+    os.makedirs(output_dir, exist_ok=True)
+    create_test_index(root_audio, root_frame, fps, output_dir)
     print('Done!')

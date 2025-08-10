@@ -2,6 +2,41 @@ import os
 import random
 from .base import BaseDataset
 
+class MUSICTestDataset(BaseDataset):
+    def __init__(self, list_sample, args, **kwargs):
+        super(MUSICTestDataset, self).__init__(
+            list_sample, args, **kwargs)
+        self.fps = args.frameRate
+    def __getitem__(self,index):
+        path_frames = []
+        path_audio, path_frame, count_frames = self.list_sample[index]
+
+        # select frames
+        center_frame = int(count_frames) // 2
+        center_time = (center_frame - 0.5) / self.fps
+       
+        # frames path (..., center - 24, center, center + 24, ...)
+        for i in range(self.num_frames):
+            idx_offset = (i - self.num_frames // 2) * self.stride_frames
+            path_frames.append(
+                os.path.join(
+                    path_frame,
+                    '{:06d}.jpg'.format(center_frame + idx_offset)))
+
+        # load frames and audios, STFT (mag + phase)
+        frames = self._load_frames(path_frames)
+        audio = self._load_audio(path_audio, center_time)
+        mag, phase = self._stft(audio)
+
+        # Package output
+        ret_dict = {
+            'mag': mag,
+            'phase': phase,
+            'frames': frames,
+            'audio': audio,
+            'info': (path_audio, path_frame, count_frames)
+        }
+        return ret_dict
 
 class MUSICMixDataset(BaseDataset):
     def __init__(self, list_sample, opt, **kwargs):
@@ -75,3 +110,23 @@ class MUSICMixDataset(BaseDataset):
             ret_dict['infos'] = infos
 
         return ret_dict
+    
+        '''
+        # Collect paths for ALL frames
+        path_frames = []
+        for frame_idx in range(1, int(count_framesN) + 1):
+            frame_path = os.path.join(
+                path_frameN,
+                '{:06d}.jpg'.format(frame_idx)
+            )
+            path_frames.append(frame_path)
+
+        # Load ALL frames
+        frames = self._load_frames(path_frames)
+
+        # Load audio for the whole clip 
+        audio  = self._load_audio_whole(path_audioN)
+
+        # Compute STFT for the full audio
+        mag, phase = self._stft(audio)
+        '''

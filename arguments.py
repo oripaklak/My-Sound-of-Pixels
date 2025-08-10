@@ -87,13 +87,14 @@ class ArgParser(object):
 
     def add_train_arguments(self):
         parser = self.parser
-        # Maybe should default should be changed from train -> eval? 
         parser.add_argument('--mode', default='train',
-                            help="train/eval")
+                            help="train/eval/test")
         parser.add_argument('--list_train',
                             default='data/train.csv')
         parser.add_argument('--list_val',
                             default='data/val.csv')
+        parser.add_argument('--list_test',
+                    default='data/test_limited.csv')
         parser.add_argument('--dup_trainset', default=100, type=int,
                             help='duplicate so that one epoch has more iters')
 

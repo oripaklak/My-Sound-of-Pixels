@@ -6,6 +6,9 @@ data/frames
 !dataset/**/*.py
 !models/**/*.py
 
+# Ignore ckpt directory
+ckpt/
+
 # Ignore common binary/large files
 *.npy
 *.pth

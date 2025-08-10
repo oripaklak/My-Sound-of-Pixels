@@ -14,14 +14,13 @@ from mir_eval.separation import bss_eval_sources
 
 # Our libs
 from arguments import ArgParser
-from dataset import MUSICMixDataset
-from models import ModelBuilder, activate
+from dataset import MUSICMixDataset, MUSICTestDataset
+from models import ModelBuilder, ModelTest, activate
 from utils import AverageMeter, \
     recover_rgb, magnitude2heatmap,\
     istft_reconstruction, warpgrid, \
     combine_video_audio, save_video, makedirs
 from viz import plot_loss_metrics, HTMLVisualizer
-
 
 # Network wrapper, defines forward pass
 class NetWrapper(torch.nn.Module):
@@ -220,6 +219,7 @@ def output_visuals(vis_rows, batch_data, outputs, args):
 
         # video names
         prefix = []
+        #args.vis = os.path.join(args.vis, 'eval/')
         for n in range(N):
             prefix.append('-'.join(infos[n][0][j].split('/')[-2:]).split('.')[0])
         prefix = '+'.join(prefix)
@@ -232,11 +232,8 @@ def output_visuals(vis_rows, batch_data, outputs, args):
         filename_mixwav = os.path.join(prefix, 'mix.wav')
         filename_mixmag = os.path.join(prefix, 'mix.jpg')
         filename_weight = os.path.join(prefix, 'weight.jpg')
-        # !!added!!
         imageio.imwrite(os.path.join(args.vis, filename_mixmag), mix_amp[::-1, :, :])
         imageio.imwrite(os.path.join(args.vis, filename_weight), weight[::-1, :])
-        #imsave(os.path.join(args.vis, filename_mixmag), mix_amp[::-1, :, :])
-        #imsave(os.path.join(args.vis, filename_weight), weight[::-1, :])
         wavfile.write(os.path.join(args.vis, filename_mixwav), args.audRate, mix_wav)
         row_elements += [{'text': prefix}, {'image': filename_mixmag, 'audio': filename_mixwav}]
 
@@ -254,22 +251,16 @@ def output_visuals(vis_rows, batch_data, outputs, args):
             filename_predmask = os.path.join(prefix, 'predmask{}.jpg'.format(n+1))
             gt_mask = (np.clip(gt_masks_[n][j, 0], 0, 1) * 255).astype(np.uint8)
             pred_mask = (np.clip(pred_masks_[n][j, 0], 0, 1) * 255).astype(np.uint8)
-            #!!added!!
             imageio.imwrite(os.path.join(args.vis, filename_gtmask), gt_mask[::-1, :])
             imageio.imwrite(os.path.join(args.vis, filename_predmask), pred_mask[::-1, :])
-            #imsave(os.path.join(args.vis, filename_gtmask), gt_mask[::-1, :])
-            #imsave(os.path.join(args.vis, filename_predmask), pred_mask[::-1, :])
 
             # ouput spectrogram (log of magnitude, show colormap)
             filename_gtmag = os.path.join(prefix, 'gtamp{}.jpg'.format(n+1))
             filename_predmag = os.path.join(prefix, 'predamp{}.jpg'.format(n+1))
             gt_mag = magnitude2heatmap(gt_mag)
             pred_mag = magnitude2heatmap(pred_mag)
-            #!!added!!
             imageio.imwrite(os.path.join(args.vis, filename_gtmag), gt_mag[::-1, :, :])
             imageio.imwrite(os.path.join(args.vis, filename_predmag), pred_mag[::-1, :, :])
-            #imsave(os.path.join(args.vis, filename_gtmag), gt_mag[::-1, :, :])
-            #imsave(os.path.join(args.vis, filename_predmag), pred_mag[::-1, :, :])
             
             # output audio
             filename_gtwav = os.path.join(prefix, 'gt{}.wav'.format(n+1))
@@ -278,7 +269,7 @@ def output_visuals(vis_rows, batch_data, outputs, args):
             wavfile.write(os.path.join(args.vis, filename_predwav), args.audRate, preds_wav[n])
 
             # output video
-            frames_tensor = [recover_rgb(frames[n][j, :, t]) for t in range(args.num_frames)]
+            frames_tensor = [recover_rgb(frames[n][j][t]) for t in range(args.num_frames)]
             frames_tensor = np.asarray(frames_tensor)
             path_video = os.path.join(args.vis, prefix, 'video{}.mp4'.format(n+1))
             save_video(path_video, frames_tensor, fps=args.frameRate/args.stride_frames)
@@ -300,11 +291,86 @@ def output_visuals(vis_rows, batch_data, outputs, args):
         row_elements += [{'image': filename_weight}]
         vis_rows.append(row_elements)
 
+def output_visuals_test(batch_data, outputs, args):
+    pass
+    (B, HI, WI, HS, WS) = outputs.size()
+    mag = batch_data["mag"]       # shape: (B, 1, F, T)
+    phase = batch_data["phase"]   # shape: (B, 1, F, T)
+    frames = batch_data["frames"] # shape: (B, NUM_FRAMES, RGB, HI, WI)
+    audio = batch_data["audio"]   # shspe: (B, audioLen)
+    infos = batch_data["info"]     # string, len = 3
+
+    pred_masks_grid = [[outputs[:, h, w] for w in range(WI)] for h in range(HI)]
+    pred_masks_grid_linear = [[None for _ in range(WI)] for _ in range(HI)]
+
+    # unwarp log scale
+    for h in range(HI):
+        for w in range(WI):
+            pred = pred_masks_grid[h][w]  # shape: (B, F, T)
+            pred = pred.unsqueeze(1) # -> (B, 1, F, T)
+            if args.log_freq:
+                grid_unwarp = torch.from_numpy(
+                    warpgrid(B, args.stft_frame//2+1, pred.size(-1), warp=False)).to(args.device)
+                pred_unwarped  = F.grid_sample(pred, grid_unwarp)
+                pred_masks_grid_linear[h][w] = pred_unwarped.squeeze(1) # (B, 512, 256)
+            else:
+                pred_masks_grid_linear[h][w] = pred.squeeze(1) # (B, 512, 256)
+    
+    # convert into numpy
+    mag = mag.numpy()
+    phase = phase.detach().cpu().numpy()
+    for h in range(HI):
+        for w in range(WI):
+            pred_masks_grid[h][w] = pred_masks_grid[h][w].detach().cpu().numpy()
+            pred_masks_grid_linear[h][w]= pred_masks_grid_linear[h][w].detach().cpu().numpy()
+
+            # threshold if binary mask
+            if args.binary_mask:
+                pred_masks_grid[h][w] = (pred_masks_grid[h][w] > args.mask_thres).astype(np.float32)
+                pred_masks_grid_linear[h][w] = (pred_masks_grid_linear[h][w] > args.mask_thres).astype(np.float32)
+    
+    # loop over each sample
+    for j in range(B):
+        prefix = []
+        prefix.append('-'.join(infos[0][0].split('/')[-2:]).split('.')[0]) # 'violin-BMhnTdy-A0M'
+        prefix = '+'.join(prefix)
+
+        root_dir = os.path.join(args.vis, 'test', prefix)
+        pred_mask_dir = os.path.join(root_dir, 'pred masks')
+        pred_audio_dir = os.path.join(root_dir, 'pred audio')
+        pred_heatmap_dir = os.path.join(root_dir, 'pred heat map')
+
+        makedirs(root_dir)
+        makedirs(pred_mask_dir)
+        makedirs(pred_audio_dir)
+        makedirs(pred_heatmap_dir)
+
+        # save each pixel
+        preds_wav = [[None for _ in range(WI)] for _ in range(HI)]
+        for h in range(HI):
+            for w in range(WI):
+                # GT and predicted audio recovery
+                pred_mag = mag[j] * pred_masks_grid_linear[h][w][j] # (512, 256)
+                preds_wav[h][w] = istft_reconstruction(pred_mag, phase[j], hop_length=args.stft_hop)
+
+                # output masks
+                filename_predmask = f'predmask{h+1}x{w+1}.jpg'
+                pred_mask = (np.clip(pred_masks_grid_linear[h][w][j], 0, 1) * 255).astype(np.uint8)
+                imageio.imwrite(os.path.join(pred_mask_dir, filename_predmask), pred_mask[::-1, :])
+                
+                # output spectrogram heatmap
+                filename_predmag = f'predamp{h+1}x{w+1}.jpg'
+                pred_heatmap  = magnitude2heatmap(pred_mag)
+                imageio.imwrite(os.path.join(pred_heatmap_dir, filename_predmag), pred_heatmap[::-1, :, :])
+                
+                # output audio
+                filename_predwav = f'pred{h+1}x{w+1}.wav'
+                wavfile.write(os.path.join(pred_audio_dir, filename_predwav), args.audRate, preds_wav[h][w])
 
 def evaluate(netWrapper, loader, history, epoch, args):
     print('Evaluating at {} epochs...'.format(epoch))
     torch.set_grad_enabled(False)
-
+    
     # remove previous viz results
     makedirs(args.vis, remove=True)
 
@@ -334,12 +400,7 @@ def evaluate(netWrapper, loader, history, epoch, args):
 
     for i, batch_data in enumerate(loader):
         # forward pass
-        err, outputs = netWrapper.forward(batch_data, args)
-        print(batch_data.keys())
-        print(batch_data['mag_mix'].shape)
-        print(batch_data['frames'][0].shape)
-        print(batch_data['mags'][0].shape)
-        
+        err, outputs = netWrapper.forward(batch_data, args)        
         err = err.mean()
 
         loss_meter.update(err.item())
@@ -422,7 +483,15 @@ def train(netWrapper, loader, optimizer, history, epoch, args):
             history['train']['epoch'].append(fractional_epoch)
             history['train']['err'].append(err.item())
 
-
+def test(nets, loader, args):
+    ModelTest_ = ModelTest(nets)
+    ModelTest_ = torch.nn.DataParallel(ModelTest_, device_ids=range(args.num_gpus))
+    ModelTest_.to(args.device)
+    for i, batch_data in enumerate(loader):
+        print('[Test] iter {}'.format(i))
+        pred_masks = ModelTest_(batch_data ,args)
+        output_visuals_test(batch_data, pred_masks, args)
+        
 def checkpoint(nets, history, epoch, args):
     print('Saving checkpoints at {} epochs.'.format(epoch))
     (net_sound, net_frame, net_synthesizer) = nets
@@ -490,7 +559,8 @@ def main(args):
         args.list_train, args, split='train')
     dataset_val = MUSICMixDataset(
         args.list_val, args, max_sample=args.num_val, split='val')
-
+    dataset_test = MUSICTestDataset(
+        args.list_test, args, split='test')
     loader_train = torch.utils.data.DataLoader(
         dataset_train,
         batch_size=args.batch_size,
@@ -503,9 +573,22 @@ def main(args):
         shuffle=False,
         num_workers=2,
         drop_last=False)
+    loader_test = torch.utils.data.DataLoader(
+        dataset_test,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=2,
+        drop_last=False)
+    # Test mode
+    if args.mode == 'test':
+        test(nets, loader_test, args)
+        print('Test Done!')
+        return
+    
+    # Eval or Train mode 
     args.epoch_iters = len(dataset_train) // args.batch_size
     print('1 Epoch = {} iters'.format(args.epoch_iters))
-
+    
     # Wrap networks
     netWrapper = NetWrapper(nets, crit)
     netWrapper = torch.nn.DataParallel(netWrapper, device_ids=range(args.num_gpus))
@@ -577,7 +660,7 @@ if __name__ == '__main__':
     args.vis = os.path.join(args.ckpt, 'visualization/')
     if args.mode == 'train':
         makedirs(args.ckpt, remove=True)
-    elif args.mode == 'eval':
+    elif args.mode == 'eval' or args.mode == 'test':
         args.weights_sound = os.path.join(args.ckpt, 'sound_best.pth')
         args.weights_frame = os.path.join(args.ckpt, 'frame_best.pth')
         args.weights_synthesizer = os.path.join(args.ckpt, 'synthesizer_best.pth')

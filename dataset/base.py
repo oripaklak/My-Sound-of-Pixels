@@ -110,6 +110,7 @@ class BaseDataset(torchdata.Dataset):
         return frames
 
     def _load_frame(self, path):
+        #pint(f"[DEBUG] Trying to load frame: {path}")
         img = Image.open(path).convert('RGB')
         img.save("debug_frame.jpg") # debug
         return img
@@ -126,18 +127,34 @@ class BaseDataset(torchdata.Dataset):
             audio_raw, rate = torchaudio.load(path)
             audio_raw = audio_raw.numpy().astype(np.float32)
 
-            # range to [-1, 1]
-            audio_raw *= (2.0**-31)
+            # range to [-1, 1] - i have removed it: 
+            #audio_raw *= (2.0**-31)
 
             # convert to mono
-            if audio_raw.shape[1] == 2:
-                audio_raw = (audio_raw[:, 0] + audio_raw[:, 1]) / 2
+            if audio_raw.shape[0] == 2:
+                audio_raw = (audio_raw[0, :] + audio_raw[1, :]) / 2
             else:
-                audio_raw = audio_raw[:, 0]
+                audio_raw = audio_raw[0, :]
         else:
             audio_raw, rate = librosa.load(path, sr=None, mono=True)
 
         return audio_raw, rate
+    def _load_audio_whole(self, path, nearest_resample=False):
+        # Load audio
+        audio_raw, rate = self._load_audio_file(path)
+
+        # Repeat if needed? → probably no, because you want the raw original
+        # Resample
+        if rate != self.audRate:
+            if nearest_resample:
+                audio_raw = audio_raw[::rate // self.audRate]
+            else:
+                audio_raw = librosa.resample(audio_raw, orig_sr=rate, target_sr=self.audRate)
+
+        # Normalize amplitude (optional)
+        audio_raw = np.clip(audio_raw, -1., 1.)
+
+        return audio_raw  # no fixed size!
 
     def _load_audio(self, path, center_timestamp, nearest_resample=False):
         audio = np.zeros(self.audLen, dtype=np.float32)

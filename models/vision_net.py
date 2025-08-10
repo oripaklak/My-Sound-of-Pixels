@@ -137,8 +137,8 @@ class ResnetDilated(nn.Module):
         x = x.permute(0, 2, 1, 3, 4).contiguous()
         x = x.view(B*T, C, H, W)
 
-        x = self.features(x)
-        x = self.fc(x)
+        x = self.features(x) # (B*T, 512, H/16, W/16)
+        x = self.fc(x) #(B*T, fc_dim, H/16, W/16) , fc_dim = args.num_channels
 
         (_, C, H, W) = x.size()
         x = x.view(B, T, C, H, W)
@@ -146,11 +146,22 @@ class ResnetDilated(nn.Module):
 
         if not pool:
             return x
-
+        # pool T, H, W
         if self.pool_type == 'avgpool':
             x = F.adaptive_avg_pool3d(x, 1)
         elif self.pool_type == 'maxpool':
             x = F.adaptive_max_pool3d(x, 1)
+        # pool T only
+        elif self.pool_type == 'avgpool_t':
+            x = F.adaptive_avg_pool3d(x, (1, H, W))  
+        elif self.pool_type == 'maxpool_t':
+            x = F.adaptive_max_pool3d(x, (1, H, W))
 
+        if self.pool_type in ['avgpool_t', 'maxpool_t']:
+            # shape: (B, C, 1, H, W)
+            x = x.squeeze(2)  # remove the T dimension
+            return x  # (B, C, H, W)   
+                
         x = x.view(B, C)
-        return x
+        return x #(B, C)
+
