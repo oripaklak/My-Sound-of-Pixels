@@ -127,8 +127,8 @@ class BaseDataset(torchdata.Dataset):
             audio_raw, rate = torchaudio.load(path)
             audio_raw = audio_raw.numpy().astype(np.float32)
 
-            # range to [-1, 1] - i have removed it: 
-            #audio_raw *= (2.0**-31)
+            if audio_raw.shape[1] == 0:  # no samples
+                print(f"[EMPTY AUDIO] {path}")
 
             # convert to mono
             if audio_raw.shape[0] == 2:
@@ -160,7 +160,7 @@ class BaseDataset(torchdata.Dataset):
         audio = np.zeros(self.audLen, dtype=np.float32)
 
         # silent
-        if path.endswith('silent'):
+        if "silent" in path:
             return audio
 
         # load audio

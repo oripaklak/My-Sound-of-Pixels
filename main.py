@@ -12,6 +12,9 @@ import imageio.v2 as imageio # !!added!!
 #from scipy.misc import imsave
 from mir_eval.separation import bss_eval_sources
 
+# Training libs
+import wandb
+
 # Our libs
 from arguments import ArgParser
 from dataset import MUSICMixDataset, MUSICTestDataset
@@ -33,6 +36,9 @@ class NetWrapper(torch.nn.Module):
         mag_mix = batch_data['mag_mix']
         mags = batch_data['mags']
         frames = batch_data['frames']
+        #mag_mix = torch.tensor(batch_data['mag_mix']).to(args.device)  # shape: (B, 1, HS, WS)
+        #mags =  torch.tensor(batch_data['mags']).to(args.device)  # shape: (B, N, 1, HS, WS)
+        #frames =  torch.tensor(batch_data['frames']).to(args.device)  # shape: (B, C, T, HI, WI)
         mag_mix = mag_mix + 1e-10
 
         N = args.num_mix
@@ -292,7 +298,7 @@ def output_visuals(vis_rows, batch_data, outputs, args):
         vis_rows.append(row_elements)
 
 def output_visuals_test(batch_data, outputs, args):
-    pass
+    #pass
     (B, HI, WI, HS, WS) = outputs.size()
     mag = batch_data["mag"]       # shape: (B, 1, F, T)
     phase = batch_data["phase"]   # shape: (B, 1, F, T)
@@ -424,6 +430,16 @@ def evaluate(netWrapper, loader, history, epoch, args):
                   sdr_meter.average(),
                   sir_meter.average(),
                   sar_meter.average()))
+    
+    wandb.log({
+        "val/loss": loss_meter.average(),
+        "val/sdr_mix": sdr_mix_meter.average(),
+        "val/sdr": sdr_meter.average(),
+        "val/sir": sir_meter.average(),
+        "val/sar": sar_meter.average(),
+        "val/epoch": epoch
+    })
+
     history['val']['epoch'].append(epoch)
     history['val']['err'].append(loss_meter.average())
     history['val']['sdr'].append(sdr_meter.average())
@@ -441,6 +457,7 @@ def evaluate(netWrapper, loader, history, epoch, args):
 
 
 # train one epoch
+# use wandb
 def train(netWrapper, loader, optimizer, history, epoch, args):
     torch.set_grad_enabled(True)
     batch_time = AverageMeter()
@@ -455,7 +472,7 @@ def train(netWrapper, loader, optimizer, history, epoch, args):
         # measure data time
         torch.cuda.synchronize()
         data_time.update(time.perf_counter() - tic)
-
+        
         # forward pass
         netWrapper.zero_grad()
         err, _ = netWrapper.forward(batch_data, args)
@@ -483,15 +500,60 @@ def train(netWrapper, loader, optimizer, history, epoch, args):
             history['train']['epoch'].append(fractional_epoch)
             history['train']['err'].append(err.item())
 
+            wandb.log({
+                "train/loss": err.item(),
+                "train/epoch": fractional_epoch,
+                "train/batch_time": batch_time.average(),
+                "train/data_time": data_time.average(),
+                "lr_sound": args.lr_sound,
+                "lr_frame": args.lr_frame,
+                "lr_synthesizer": args.lr_synthesizer
+            })
+
 def test(nets, loader, args):
     ModelTest_ = ModelTest(nets)
     ModelTest_ = torch.nn.DataParallel(ModelTest_, device_ids=range(args.num_gpus))
     ModelTest_.to(args.device)
+    up_sample = True
     for i, batch_data in enumerate(loader):
         print('[Test] iter {}'.format(i))
         pred_masks = ModelTest_(batch_data ,args)
+
+        if up_sample:
+            args.vis = os.path.join(args.ckpt, 'test_upsample/')
+            pred_masks = upsample_spatial_only(pred_masks, target_size=(224, 224))
+
         output_visuals_test(batch_data, pred_masks, args)
+
+def upsample_spatial_only(pred_masks, target_size=(224, 224), chunk_size=8):
+    """
+    pred_masks: (B, HI, WI, HS, WS)
+    Returns: (B, target_H, target_W, HS, WS)
+    """
+    B, HI, WI, HS, WS = pred_masks.shape
+    C = HS * WS
+
+    pred_masks_flat = pred_masks.view(B, HI, WI, C)
+
+    chunks_out = []  # store processed chunks on GPU
+
+    #chunk = pred_masks_flat.permute(0, 3, 1, 2)     # (B, chunk, HI, WI)
+    #chunk_up = F.interpolate(chunk, size=target_size, mode='bilinear', align_corners=False) 
+
+    for start in range(0, C, chunk_size):
+        print(start)
+        end = min(start + chunk_size, C)
+        chunk = pred_masks_flat[..., start:end].permute(0, 3, 1, 2)     # (B, chunk, HI, WI)
+        chunk_up = F.interpolate(chunk, size=target_size, mode='bilinear', align_corners=False)  # (B, chunk, H, W)
+        chunks_out.append(chunk_up)  # keep on GPU
         
+        del chunk_up, chunk
+
+    # Concatenate along channel dim and reshape back
+    out = torch.cat(chunks_out, dim=1)  # (B, C, H, W)
+    out = out.permute(0, 2, 3, 1).view(B, target_size[0], target_size[1], HS, WS)
+    return out
+  
 def checkpoint(nets, history, epoch, args):
     print('Saving checkpoints at {} epochs.'.format(epoch))
     (net_sound, net_frame, net_synthesizer) = nets
@@ -589,11 +651,13 @@ def main(args):
     args.epoch_iters = len(dataset_train) // args.batch_size
     print('1 Epoch = {} iters'.format(args.epoch_iters))
     
+    
     # Wrap networks
     netWrapper = NetWrapper(nets, crit)
-    netWrapper = torch.nn.DataParallel(netWrapper, device_ids=range(args.num_gpus))
+    netWrapper = torch.nn.DataParallel(netWrapper, device_ids=gpu_id)
+    #netWrapper = torch.nn.DataParallel(netWrapper, device_ids=range(args.num_gpus))
     netWrapper.to(args.device)
-
+    
     # Set up optimizer
     optimizer = create_optimizer(nets, args)
 
@@ -601,6 +665,13 @@ def main(args):
     history = {
         'train': {'epoch': [], 'err': []},
         'val': {'epoch': [], 'err': [], 'sdr': [], 'sir': [], 'sar': []}}
+    
+    # ✅ Initialize Weights & Biases
+    wandb.init(
+        project="my-sound-of-pixels",
+        entity="oripaklak-bar-ilan-university",   
+        config=vars(args)     # log all hyperparameters from args
+    )
 
     # Eval mode
     evaluate(netWrapper, loader_val, history, 0, args)
@@ -623,6 +694,7 @@ def main(args):
         if epoch in args.lr_steps:
             adjust_learning_rate(optimizer, args)
 
+    wandb.finish()  # finish the wandb run
     print('Training Done!')
 
 
@@ -631,8 +703,10 @@ if __name__ == '__main__':
     parser = ArgParser()
     args = parser.parse_train_arguments()
     args.batch_size = args.num_gpus * args.batch_size_per_gpu
-    args.device = torch.device("cuda")
-
+    #args.device = torch.device("cuda")
+    gpu_id = [1]
+    
+    args.device = torch.device("cuda", gpu_id[0])
     # experiment name
     if args.mode == 'train':
         args.id += '-{}mix'.format(args.num_mix)
@@ -658,6 +732,8 @@ if __name__ == '__main__':
     # paths to save/load output
     args.ckpt = os.path.join(args.ckpt, args.id)
     args.vis = os.path.join(args.ckpt, 'visualization/')
+    if args.mode == 'test':
+        args.vis = os.path.join(args.ckpt, 'test/')
     if args.mode == 'train':
         makedirs(args.ckpt, remove=True)
     elif args.mode == 'eval' or args.mode == 'test':

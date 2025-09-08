@@ -2,6 +2,8 @@ import torch
 import torchvision
 import torch.nn.functional as F
 
+from torchvision.models import resnet18, ResNet18_Weights
+
 from .synthesizer_net import InnerProd, Bias
 from .audio_net import Unet
 from .vision_net import ResnetFC, ResnetDilated
@@ -54,23 +56,21 @@ class ModelBuilder():
         return net_sound
 
     # builder for vision
-    def build_frame(self, arch='resnet18', fc_dim=64, pool_type='avgpool',
-                    weights=''):
-        pretrained=True
-        if arch == 'resnet18fc':
-            original_resnet = torchvision.models.resnet18(pretrained)
-            net = ResnetFC(
-                original_resnet, fc_dim=fc_dim, pool_type=pool_type)
+    def build_frame(self, arch='resnet18', fc_dim=64, pool_type='avgpool', weights=''): 
+        pretrained=True 
+        if arch == 'resnet18fc': 
+            original_resnet = torchvision.models.resnet18(pretrained) 
+            net = ResnetFC( 
+                original_resnet, fc_dim=fc_dim, pool_type=pool_type) 
         elif arch == 'resnet18dilated':
-            original_resnet = torchvision.models.resnet18(pretrained)
-            net = ResnetDilated(
-                original_resnet, fc_dim=fc_dim, pool_type=pool_type)
-        else:
-            raise Exception('Architecture undefined!')
-
-        if len(weights) > 0:
-            print('Loading weights for net_frame')
-            net.load_state_dict(torch.load(weights))
+            original_resnet = torchvision.models.resnet18(pretrained) 
+            net = ResnetDilated( 
+                original_resnet, fc_dim=fc_dim, pool_type=pool_type) 
+        else: 
+            raise Exception('Architecture undefined!') 
+        if len(weights) > 0: 
+            print('Loading weights for net_frame') 
+            net.load_state_dict(torch.load(weights)) 
         return net
 
     def build_synthesizer(self, arch, fc_dim=64, weights=''):

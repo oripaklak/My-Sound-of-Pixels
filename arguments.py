@@ -16,11 +16,11 @@ class ArgParser(object):
         parser.add_argument('--arch_synthesizer', default='linear',
                             help="architecture of net_synthesizer")
         #!!added!!
-        parser.add_argument('--weights_sound', default='ckpt/MUSIC-2mix-LogFreq-resnet18dilated-unet7-linear-frames3stride24-maxpool-binary-weightedLoss-channels32-epoch100-step40_80/sound_best.pth',
+        parser.add_argument('--weights_sound', default='',
                             help="weights to finetune net_sound")
-        parser.add_argument('--weights_frame', default='ckpt/MUSIC-2mix-LogFreq-resnet18dilated-unet7-linear-frames3stride24-maxpool-binary-weightedLoss-channels32-epoch100-step40_80/frame_best.pth',
+        parser.add_argument('--weights_frame', default='',
                             help="weights to finetune net_frame")
-        parser.add_argument('--weights_synthesizer', default='ckpt/MUSIC-2mix-LogFreq-resnet18dilated-unet7-linear-frames3stride24-maxpool-binary-weightedLoss-channels32-epoch100-step40_80/synthesizer_best.pth',
+        parser.add_argument('--weights_synthesizer', default='',
                             help="weights to finetune net_synthesizer")
         parser.add_argument('--num_channels', default=32, type=int,
                             help='number of channels')
