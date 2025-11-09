@@ -8,7 +8,7 @@ data/frames
 
 # Ignore ckpt directory
 ckpt/
-
+wandb/
 # Ignore common binary/large files
 *.npy
 *.pth

@@ -1,4 +1,5 @@
 # System libs
+import json
 import os
 import random
 import time
@@ -34,8 +35,13 @@ class NetWrapper(torch.nn.Module):
 
     def forward(self, batch_data, args):
         mag_mix = batch_data['mag_mix']
-        mags = batch_data['mags']
-        frames = batch_data['frames']
+        device = mag_mix.device if mag_mix.is_cuda else args.device
+        if not mag_mix.is_cuda:
+            mag_mix = mag_mix.to(device, non_blocking=True)
+        mags = [mag if mag.is_cuda else mag.to(device, non_blocking=True)
+                for mag in batch_data['mags']]
+        frames = [frame if frame.is_cuda else frame.to(device, non_blocking=True)
+                  for frame in batch_data['frames']]
         #mag_mix = torch.tensor(batch_data['mag_mix']).to(args.device)  # shape: (B, 1, HS, WS)
         #mags =  torch.tensor(batch_data['mags']).to(args.device)  # shape: (B, N, 1, HS, WS)
         #frames =  torch.tensor(batch_data['frames']).to(args.device)  # shape: (B, C, T, HI, WI)
@@ -48,7 +54,7 @@ class NetWrapper(torch.nn.Module):
         # 0.0 warp the spectrogram
         if args.log_freq:
             grid_warp = torch.from_numpy(
-                warpgrid(B, 256, T, warp=True)).to(args.device)
+                warpgrid(B, 256, T, warp=True)).to(device)
             mag_mix = F.grid_sample(mag_mix, grid_warp)
             for n in range(N):
                 mags[n] = F.grid_sample(mags[n], grid_warp)
@@ -219,9 +225,27 @@ def output_visuals(vis_rows, batch_data, outputs, args):
             pred_masks_[n] = (pred_masks_[n] > args.mask_thres).astype(np.float32)
             pred_masks_linear[n] = (pred_masks_linear[n] > args.mask_thres).astype(np.float32)
 
+    center_frames_np = None
+    if 'center_frames' in batch_data:
+        centers = batch_data['center_frames']
+        if isinstance(centers, torch.Tensor):
+            centers = centers.detach().cpu().numpy()
+        else:
+            centers = np.asarray(centers)
+        if centers.ndim == 1:
+            if B == 1:
+                centers = centers.reshape(1, -1)
+            else:
+                centers = np.expand_dims(centers, axis=1)
+        if centers.ndim == 2 and centers.shape[0] != B and centers.shape[1] == B:
+            centers = np.transpose(centers, (1, 0))
+        center_frames_np = centers
+    aud_duration = float(args.audLen) / float(args.audRate)
+
     # loop over each sample
     for j in range(B):
         row_elements = []
+        source_meta = []
 
         # video names
         prefix = []
@@ -287,58 +311,105 @@ def output_visuals(vis_rows, batch_data, outputs, args):
                 os.path.join(args.vis, filename_gtwav),
                 os.path.join(args.vis, filename_av))
 
+            video_info = infos[n][0][j]
+            youtube_id = os.path.splitext(os.path.basename(video_info))[0]
+            count_entry = infos[n][2][j] if len(infos[n]) > 2 else 0
+            try:
+                count_frames = int(float(count_entry))
+            except (TypeError, ValueError):
+                count_frames = 0
+
+            center_frame = None
+            if center_frames_np is not None:
+                try:
+                    center_val = center_frames_np[j, n]
+                except IndexError:
+                    try:
+                        center_val = center_frames_np[n, j]
+                    except IndexError:
+                        center_val = None
+                if center_val is not None:
+                    center_frame = int(center_val)
+            if (center_frame is None or center_frame < 0) and count_frames > 0:
+                center_frame = count_frames // 2
+            if center_frame is None:
+                center_frame = 0
+
+            video_duration = (count_frames / args.frameRate) if (count_frames and args.frameRate) else aud_duration
+            center_time = ((center_frame - 0.5) / args.frameRate) if args.frameRate else 0.0
+            center_time = max(0.0, center_time)
+            start_time = max(0.0, center_time - aud_duration / 2.0)
+            end_time = start_time + aud_duration
+            if video_duration:
+                end_time = min(video_duration, end_time)
+            if end_time < start_time:
+                end_time = start_time
+
+            youtube_meta = {
+                'id': youtube_id,
+                'start': float(round(start_time, 2)),
+                'end': float(round(end_time, 2)),
+                'center_frame': int(center_frame),
+                'video_duration': float(round(video_duration, 2))
+            }
+            source_meta.append(youtube_meta)
+
+            video_cell = {}
+            if youtube_id:
+                video_cell['youtube'] = youtube_meta
+            elif os.path.exists(os.path.join(args.vis, filename_av)):
+                video_cell['video'] = filename_av
+            else:
+                video_cell['text'] = '—'
+
             row_elements += [
-                {'video': filename_av},
+                video_cell,
                 {'image': filename_predmag, 'audio': filename_predwav},
                 {'image': filename_gtmag, 'audio': filename_gtwav},
                 {'image': filename_predmask},
                 {'image': filename_gtmask}]
 
         row_elements += [{'image': filename_weight}]
+
+        meta_payload = {
+            'sources': source_meta,
+            'audio_duration': float(round(aud_duration, 2)),
+            'frame_rate': float(args.frameRate),
+            'sample_rate': int(args.audRate)
+        }
+        meta_path = os.path.join(args.vis, prefix, 'meta.json')
+        try:
+            with open(meta_path, 'w') as meta_file:
+                json.dump(meta_payload, meta_file, indent=2)
+        except IOError as io_err:
+            print(f'[Meta] Failed to write metadata for {prefix}: {io_err}')
+
         vis_rows.append(row_elements)
 
 def output_visuals_test(batch_data, outputs, args):
-    #pass
-    (B, HI, WI, HS, WS) = outputs.size()
-    mag = batch_data["mag"]       # shape: (B, 1, F, T)
-    phase = batch_data["phase"]   # shape: (B, 1, F, T)
-    frames = batch_data["frames"] # shape: (B, NUM_FRAMES, RGB, HI, WI)
-    audio = batch_data["audio"]   # shspe: (B, audioLen)
-    infos = batch_data["info"]     # string, len = 3
+    """
+    Writes per-pixel predictions for the test split without keeping all CUDA
+    tensors resident. Each pixel is processed sequentially to keep the memory
+    footprint small while still generating the same artifacts as before.
+    """
+    outputs = outputs.detach()
+    if outputs.is_cuda:
+        outputs = outputs.cpu()
 
-    pred_masks_grid = [[outputs[:, h, w] for w in range(WI)] for h in range(HI)]
-    pred_masks_grid_linear = [[None for _ in range(WI)] for _ in range(HI)]
+    B, HI, WI, HS, WS = outputs.size()
+    mag = batch_data["mag"].detach().cpu().numpy()        # (B, 1, F, T)
+    phase = batch_data["phase"].detach().cpu().numpy()    # (B, 1, F, T)
+    infos = batch_data["info"]
 
-    # unwarp log scale
-    for h in range(HI):
-        for w in range(WI):
-            pred = pred_masks_grid[h][w]  # shape: (B, F, T)
-            pred = pred.unsqueeze(1) # -> (B, 1, F, T)
-            if args.log_freq:
-                grid_unwarp = torch.from_numpy(
-                    warpgrid(B, args.stft_frame//2+1, pred.size(-1), warp=False)).to(args.device)
-                pred_unwarped  = F.grid_sample(pred, grid_unwarp)
-                pred_masks_grid_linear[h][w] = pred_unwarped.squeeze(1) # (B, 512, 256)
-            else:
-                pred_masks_grid_linear[h][w] = pred.squeeze(1) # (B, 512, 256)
-    
-    # convert into numpy
-    mag = mag.numpy()
-    phase = phase.detach().cpu().numpy()
-    for h in range(HI):
-        for w in range(WI):
-            pred_masks_grid[h][w] = pred_masks_grid[h][w].detach().cpu().numpy()
-            pred_masks_grid_linear[h][w]= pred_masks_grid_linear[h][w].detach().cpu().numpy()
+    grid_unwarp = None
+    if args.log_freq:
+        grid_unwarp = torch.from_numpy(
+            warpgrid(1, args.stft_frame // 2 + 1, WS, warp=False)
+        ).type_as(outputs)
 
-            # threshold if binary mask
-            if args.binary_mask:
-                pred_masks_grid[h][w] = (pred_masks_grid[h][w] > args.mask_thres).astype(np.float32)
-                pred_masks_grid_linear[h][w] = (pred_masks_grid_linear[h][w] > args.mask_thres).astype(np.float32)
-    
-    # loop over each sample
     for j in range(B):
         prefix = []
-        prefix.append('-'.join(infos[0][0].split('/')[-2:]).split('.')[0]) # 'violin-BMhnTdy-A0M'
+        prefix.append('-'.join(infos[0][0].split('/')[-2:]).split('.')[0])
         prefix = '+'.join(prefix)
 
         root_dir = os.path.join(args.vis, 'test', prefix)
@@ -351,27 +422,119 @@ def output_visuals_test(batch_data, outputs, args):
         makedirs(pred_audio_dir)
         makedirs(pred_heatmap_dir)
 
-        # save each pixel
-        preds_wav = [[None for _ in range(WI)] for _ in range(HI)]
+        mag_sample = mag[j, 0]
+        phase_sample = phase[j, 0]
+        time_bins = mag_sample.shape[-1]
+        waveform_time = max(1, (time_bins - 1) * args.stft_hop)
+
+        result = np.zeros((waveform_time, HI, WI), dtype=np.float32)
+        
         for h in range(HI):
             for w in range(WI):
-                # GT and predicted audio recovery
-                pred_mag = mag[j] * pred_masks_grid_linear[h][w][j] # (512, 256)
-                preds_wav[h][w] = istft_reconstruction(pred_mag, phase[j], hop_length=args.stft_hop)
+                pred = outputs[j, h, w].unsqueeze(0).unsqueeze(0)  # (1,1,HS,WS)
+                if args.log_freq:
+                    pred = F.grid_sample(pred, grid_unwarp, align_corners=False)
 
-                # output masks
+                pred_np = pred.squeeze().numpy()
+                if args.binary_mask:
+                    pred_np = (pred_np > args.mask_thres).astype(np.float32)
+
+                pred_mag = mag_sample * pred_np
+                pred_wav = istft_reconstruction(pred_mag, phase_sample, hop_length=args.stft_hop)
+
+                result[:, h, w] = pred_wav
+
                 filename_predmask = f'predmask{h+1}x{w+1}.jpg'
-                pred_mask = (np.clip(pred_masks_grid_linear[h][w][j], 0, 1) * 255).astype(np.uint8)
-                imageio.imwrite(os.path.join(pred_mask_dir, filename_predmask), pred_mask[::-1, :])
-                
-                # output spectrogram heatmap
+                pred_mask_img = (np.clip(pred_np, 0, 1) * 255).astype(np.uint8)
+                imageio.imwrite(os.path.join(pred_mask_dir, filename_predmask), pred_mask_img[::-1, :])
+
                 filename_predmag = f'predamp{h+1}x{w+1}.jpg'
-                pred_heatmap  = magnitude2heatmap(pred_mag)
+                pred_heatmap = magnitude2heatmap(pred_mag)
                 imageio.imwrite(os.path.join(pred_heatmap_dir, filename_predmag), pred_heatmap[::-1, :, :])
-                
-                # output audio
+
                 filename_predwav = f'pred{h+1}x{w+1}.wav'
-                wavfile.write(os.path.join(pred_audio_dir, filename_predwav), args.audRate, preds_wav[h][w])
+                wavfile.write(os.path.join(pred_audio_dir, filename_predwav), args.audRate, pred_wav)
+        print(result[100:103, :, :])
+        activity_dir = os.path.join(root_dir, 'pixel activity')
+        makedirs(activity_dir)
+        activity_video = os.path.join(activity_dir, 'pixel_activity.mp4')
+        abs_threshold = getattr(args, 'pixel_activity_abs_threshold', 1e-3)
+        rel_threshold = getattr(args, 'pixel_activity_rel_threshold', 0.2)
+        samples_per_frame = getattr(args, 'pixel_activity_samples_per_frame', args.stft_hop * 4)
+        energy_gamma = getattr(args, 'pixel_activity_energy_gamma', 2.0)
+        rel_threshold = float(np.clip(rel_threshold, 0.0, 1.0))
+        create_noise_activity_video(
+            result,
+            activity_video,
+            sample_rate=args.audRate,
+            abs_threshold=abs_threshold,
+            rel_threshold=rel_threshold,
+            samples_per_frame=max(1, int(samples_per_frame)),
+            energy_gamma=max(1.0, float(energy_gamma)),
+            active_color=(255, 0, 0),
+            inactive_color=(255, 255, 255))
+
+def create_noise_activity_video(waveform_cube,
+                                output_path,
+                                sample_rate,
+                                abs_threshold=1e-3,
+                                rel_threshold=0.3,
+                                samples_per_frame=1024,
+                                energy_gamma=2.0,
+                                active_color=(255, 0, 0),
+                                inactive_color=(255, 255, 255),
+                                eps=1e-8):
+    """
+    Convert a (T, HI, WI) waveform tensor into a color-coded activity video.
+
+    Args:
+        waveform_cube (np.ndarray): Array with shape (time_samples, HI, WI) containing
+            reconstructed waveforms for each pixel.
+        output_path (str): Destination video filename (.mp4 or .avi supported).
+        sample_rate (float): Waveform sampling rate (Hz).
+        abs_threshold (float): Minimum RMS value to consider a pixel active.
+        rel_threshold (float): Fraction within [0, 1]; pixels whose RMS exceeds
+            `median + rel_threshold * (max - median)` are counted as active.
+        samples_per_frame (int): Number of raw samples aggregated into a single frame.
+        energy_gamma (float): Exponent applied to per-pixel RMS values to stretch their
+            dynamic range before thresholding (gamma >= 1).
+            FPS will be derived as sample_rate / samples_per_frame by the caller.
+        active_color (Tuple[int, int, int]): RGB color for active pixels.
+        inactive_color (Tuple[int, int, int]): RGB color for silent pixels.
+        eps (float): Numerical stability constant for RMS computation.
+    """
+    waveform_np = np.asarray(waveform_cube, dtype=np.float32)
+    if waveform_np.ndim != 3:
+        raise ValueError(f"waveform_cube must be 3D (T, HI, WI); got {waveform_np.shape}")
+
+    T, HI, WI = waveform_np.shape
+    samples_per_frame = max(1, int(samples_per_frame))
+    num_frames = max(1, int(np.ceil(T / samples_per_frame)))
+
+    active_rgb = np.asarray(active_color, dtype=np.uint8)
+    inactive_rgb = np.asarray(inactive_color, dtype=np.uint8)
+    frames = np.empty((num_frames, HI, WI, 3), dtype=np.uint8)
+
+    for idx in range(num_frames):
+        start = idx * samples_per_frame
+        end = min((idx + 1) * samples_per_frame, T)
+        chunk = waveform_np[start:end]
+        rms = np.sqrt(np.mean(chunk * chunk, axis=0) + eps)
+        if energy_gamma is not None and energy_gamma > 1:
+            rms = np.power(rms, energy_gamma)
+        frame_max = float(rms.max())
+        frame_median = float(np.median(rms))
+        dynamic = frame_max - frame_median
+        adaptive = frame_median + float(rel_threshold) * dynamic if dynamic > 0 else frame_max
+        cutoff = max(abs_threshold, adaptive)
+        activity = rms >= cutoff if frame_max > 0 else np.zeros_like(rms, dtype=bool)
+        frame = np.where(activity[..., None], active_rgb, inactive_rgb)
+        frames[idx] = frame.astype(np.uint8)
+
+    fps = max(sample_rate / max(samples_per_frame, 1), 1e-3)
+    save_video(output_path, frames, fps=max(fps, 1e-3))
+    return frames
+
 
 def evaluate(netWrapper, loader, history, epoch, args):
     print('Evaluating at {} epochs...'.format(epoch))
@@ -466,11 +629,13 @@ def train(netWrapper, loader, optimizer, history, epoch, args):
     netWrapper.train()
 
     # main loop
-    torch.cuda.synchronize()
+    if args.device.type == 'cuda':
+        torch.cuda.synchronize()
     tic = time.perf_counter()
     for i, batch_data in enumerate(loader):
         # measure data time
-        torch.cuda.synchronize()
+        if args.device.type == 'cuda':
+            torch.cuda.synchronize()
         data_time.update(time.perf_counter() - tic)
         
         # forward pass
@@ -483,7 +648,8 @@ def train(netWrapper, loader, optimizer, history, epoch, args):
         optimizer.step()
 
         # measure total time
-        torch.cuda.synchronize()
+        if args.device.type == 'cuda':
+            torch.cuda.synchronize()
         batch_time.update(time.perf_counter() - tic)
         tic = time.perf_counter()
 
@@ -512,54 +678,21 @@ def train(netWrapper, loader, optimizer, history, epoch, args):
 
 def test(nets, loader, args):
     ModelTest_ = ModelTest(nets)
-    ModelTest_ = torch.nn.DataParallel(ModelTest_, device_ids=range(args.num_gpus))
+    if args.num_gpus > 1:
+        ModelTest_ = torch.nn.DataParallel(ModelTest_, device_ids=range(args.num_gpus))
     ModelTest_.to(args.device)
-    up_sample = True
     for i, batch_data in enumerate(loader):
         print('[Test] iter {}'.format(i))
         pred_masks = ModelTest_(batch_data ,args)
-
-        if up_sample:
-            args.vis = os.path.join(args.ckpt, 'test_upsample/')
-            pred_masks = upsample_spatial_only(pred_masks, target_size=(224, 224))
-
-        output_visuals_test(batch_data, pred_masks, args)
-
-def upsample_spatial_only(pred_masks, target_size=(224, 224), chunk_size=8):
-    """
-    pred_masks: (B, HI, WI, HS, WS)
-    Returns: (B, target_H, target_W, HS, WS)
-    """
-    B, HI, WI, HS, WS = pred_masks.shape
-    C = HS * WS
-
-    pred_masks_flat = pred_masks.view(B, HI, WI, C)
-
-    chunks_out = []  # store processed chunks on GPU
-
-    #chunk = pred_masks_flat.permute(0, 3, 1, 2)     # (B, chunk, HI, WI)
-    #chunk_up = F.interpolate(chunk, size=target_size, mode='bilinear', align_corners=False) 
-
-    for start in range(0, C, chunk_size):
-        print(start)
-        end = min(start + chunk_size, C)
-        chunk = pred_masks_flat[..., start:end].permute(0, 3, 1, 2)     # (B, chunk, HI, WI)
-        chunk_up = F.interpolate(chunk, size=target_size, mode='bilinear', align_corners=False)  # (B, chunk, H, W)
-        chunks_out.append(chunk_up)  # keep on GPU
         
-        del chunk_up, chunk
-
-    # Concatenate along channel dim and reshape back
-    out = torch.cat(chunks_out, dim=1)  # (B, C, H, W)
-    out = out.permute(0, 2, 3, 1).view(B, target_size[0], target_size[1], HS, WS)
-    return out
+        output_visuals_test(batch_data, pred_masks, args)
   
 def checkpoint(nets, history, epoch, args):
     print('Saving checkpoints at {} epochs.'.format(epoch))
     (net_sound, net_frame, net_synthesizer) = nets
     suffix_latest = 'latest.pth'
     suffix_best = 'best.pth'
-
+    '''
     torch.save(history,
                '{}/history_{}'.format(args.ckpt, suffix_latest))
     torch.save(net_sound.state_dict(),
@@ -568,7 +701,7 @@ def checkpoint(nets, history, epoch, args):
                '{}/frame_{}'.format(args.ckpt, suffix_latest))
     torch.save(net_synthesizer.state_dict(),
                '{}/synthesizer_{}'.format(args.ckpt, suffix_latest))
-
+    '''
     cur_err = history['val']['err'][-1]
     if cur_err < args.best_err:
         args.best_err = cur_err
@@ -628,19 +761,25 @@ def main(args):
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=int(args.workers),
-        drop_last=True)
+        drop_last=True,
+        pin_memory=args.device.type == 'cuda',
+        persistent_workers=int(args.workers) > 0)
     loader_val = torch.utils.data.DataLoader(
         dataset_val,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=2,
-        drop_last=False)
+        drop_last=False,
+        pin_memory=args.device.type == 'cuda',
+        persistent_workers=True)
     loader_test = torch.utils.data.DataLoader(
         dataset_test,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=2,
-        drop_last=False)
+        drop_last=False,
+        pin_memory=args.device.type == 'cuda',
+        persistent_workers=True)
     # Test mode
     if args.mode == 'test':
         test(nets, loader_test, args)
@@ -702,11 +841,22 @@ if __name__ == '__main__':
     # arguments
     parser = ArgParser()
     args = parser.parse_train_arguments()
+    requested_gpus = args.num_gpus
+    if torch.cuda.is_available():
+        available_gpus = torch.cuda.device_count()
+        if requested_gpus > available_gpus:
+            print('Requested {} GPUs but only {} available. Using {} instead.'.format(
+                requested_gpus, available_gpus, available_gpus))
+            args.num_gpus = available_gpus
+    else:
+        raise RuntimeError('CUDA is not available. Please run on a machine with at least one GPU.')
+
+    if args.num_gpus == 0:
+        raise RuntimeError('No CUDA devices visible. Please check your CUDA configuration or lower --num_gpus.')
+
+    gpu_id = list(range(args.num_gpus))
+    args.device = torch.device('cuda', gpu_id[0])
     args.batch_size = args.num_gpus * args.batch_size_per_gpu
-    #args.device = torch.device("cuda")
-    gpu_id = [1]
-    
-    args.device = torch.device("cuda", gpu_id[0])
     # experiment name
     if args.mode == 'train':
         args.id += '-{}mix'.format(args.num_mix)
@@ -738,7 +888,7 @@ if __name__ == '__main__':
         makedirs(args.ckpt, remove=True)
     elif args.mode == 'eval' or args.mode == 'test':
         args.weights_sound = os.path.join(args.ckpt, 'sound_best.pth')
-        args.weights_frame = os.path.join(args.ckpt, 'frame_best.pth')
+        args.weights_frame = os.path.join(args.ckpt ,'frame_best.pth')
         args.weights_synthesizer = os.path.join(args.ckpt, 'synthesizer_best.pth')
 
     # initialize best error with a big number

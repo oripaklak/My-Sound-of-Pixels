@@ -18,7 +18,6 @@ OPTS+="--weighted_loss 1 "
 # logscale in frequency
 OPTS+="--num_mix 2 "
 OPTS+="--log_freq 1 "
-ps aux | grep 3307678
 
 # frames-related
 OPTS+="--num_frames 3 "
@@ -36,7 +35,7 @@ OPTS+="--batch_size_per_gpu 32 "
 OPTS+="--lr_frame 1e-4 "
 OPTS+="--lr_sound 1e-3 "
 OPTS+="--lr_synthesizer 1e-3 "
-OPTS+="--num_epoch 30 "
+OPTS+="--num_epoch 100 "
 OPTS+="--lr_steps 40 80 "
 
 # display, viz

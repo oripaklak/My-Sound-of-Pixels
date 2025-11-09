@@ -27,18 +27,34 @@ class InnerProd(nn.Module):
         return z
 
     # inference purposes
-    def forward_pixelwise(self, feats_img, feat_sound):
-        (B, C, HI, WI) = feats_img.size() 
-        (B, C, HS, WS) = feat_sound.size()
-        feats_img = feats_img.view(B, C, HI*WI) # shape: (B, C, HI*WI)
-        feats_img = feats_img.transpose(1, 2) # shape: (B, HI*WI, C)
-        feat_sound = feat_sound.view(B, C, HS * WS) # shape: (B, C, HS*WS)
-        z = torch.bmm(feats_img * self.scale, feat_sound) \
-            .view(B, HI, WI, HS, WS) 
-        # after bmm (HI*WI, C) x (C, HS*WS) => (HI*WI, HS*WS)
-        # after view (B, HI, WI, HS, WS)
-        z = z + self.bias
-        return z
+    def forward_pixelwise(self, feats_img, feat_sound, spec_chunk=4096):
+        (B, C, HI, WI) = feats_img.size()
+        (_, _, HS, WS) = feat_sound.size()
+        spatial = HI * WI
+        spectral = HS * WS
+
+        feats_img = feats_img.view(B, C, spatial).permute(0, 2, 1).contiguous()  # (B, spatial, C)
+        feat_sound = feat_sound.view(B, C, spectral).contiguous()               # (B, C, spectral)
+
+        scale = self.scale.view(1, 1, C)
+        scaled_feats = feats_img * scale
+
+        output_cpu = torch.empty(B, spatial, spectral,
+                                 dtype=scaled_feats.dtype,
+                                 device='cpu')
+
+        chunk = max(1, int(spec_chunk))
+        for start in range(0, spectral, chunk):
+            end = min(start + chunk, spectral)
+            sound_chunk = feat_sound[:, :, start:end]
+            chunk_out = torch.bmm(scaled_feats, sound_chunk)
+            output_cpu[:, :, start:end].copy_(chunk_out.detach().cpu())
+            del chunk_out, sound_chunk
+
+        output_cpu += self.bias.detach().cpu()
+        del scaled_feats, feats_img, feat_sound
+        output_cpu = output_cpu.view(B, HI, WI, HS, WS)
+        return output_cpu
     
     def forward_pixelwise_multiframes(self, feats_img, feat_sound):
         (B, C, T, HI, WI) = feats_img.size()
@@ -79,15 +95,29 @@ class Bias(nn.Module):
         return z
 
     # inference purposes
-    def forward_pixelwise(self, feats_img, feat_sound):
+    def forward_pixelwise(self, feats_img, feat_sound, spec_chunk=4096):
         (B, C, HI, WI) = feats_img.size()
-        (B, C, HS, WS) = feat_sound.size()
-        feats_img = feats_img.view(B, C, HI*WI)
-        feats_img = feats_img.transpose(1, 2)
-        feat_sound = feat_sound.view(B, C, HS * WS)
-        z = torch.bmm(feats_img, feat_sound) \
-            .view(B, HI, WI, HS, WS)
-        z = z + self.bias
-        return z
+        (_, _, HS, WS) = feat_sound.size()
+        spatial = HI * WI
+        spectral = HS * WS
+
+        feats_img = feats_img.view(B, C, spatial).permute(0, 2, 1).contiguous()
+        feat_sound = feat_sound.view(B, C, spectral).contiguous()
+
+        output_cpu = torch.empty(B, spatial, spectral,
+                                 dtype=feats_img.dtype,
+                                 device='cpu')
+        chunk = max(1, int(spec_chunk))
+        for start in range(0, spectral, chunk):
+            end = min(start + chunk, spectral)
+            sound_chunk = feat_sound[:, :, start:end]
+            chunk_out = torch.bmm(feats_img, sound_chunk)
+            output_cpu[:, :, start:end].copy_(chunk_out.detach().cpu())
+            del chunk_out, sound_chunk
+
+        output_cpu += self.bias.detach().cpu()
+        del feats_img, feat_sound
+        output_cpu = output_cpu.view(B, HI, WI, HS, WS)
+        return output_cpu
     
 

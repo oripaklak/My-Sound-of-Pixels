@@ -108,6 +108,7 @@ class MUSICMixDataset(BaseDataset):
             ret_dict['audios'] = audios
             ret_dict['phase_mix'] = phase_mix
             ret_dict['infos'] = infos
+        ret_dict['center_frames'] = center_frames
 
         return ret_dict
     

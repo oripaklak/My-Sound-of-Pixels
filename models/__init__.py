@@ -104,13 +104,19 @@ class ModelTest(torch.nn.Module):
         self.net_sound, self.net_frame, self.net_synthesizer = nets
 
     def forward(self, batch_data , args):
-        frames = batch_data["frames"] # (B, C, T, HI, WI)
-        mag = batch_data["mag"].unsqueeze(1) # (B, 1, HS, WS)
+        mag = batch_data["mag"]
+        device = mag.device if mag.is_cuda else args.device
+        if not mag.is_cuda:
+            mag = mag.to(device, non_blocking=True)
+        mag = mag.unsqueeze(1) # (B, 1, HS, WS)
+        frames = batch_data["frames"]
+        if not frames.is_cuda:
+            frames = frames.to(device, non_blocking=True) # (B, C, T, HI, WI)
         B = mag.size(0)
         T = mag.size(3)
         
         if args.log_freq:
-            grid_warp = torch.from_numpy(warpgrid(B, 256, T, warp=True)).to(args.device)
+            grid_warp = torch.from_numpy(warpgrid(B, 256, T, warp=True)).to(device)
             mag = F.grid_sample(mag, grid_warp) # (B, 1, 256, 256)
             mag = torch.log(mag).detach()
 
@@ -118,11 +124,18 @@ class ModelTest(torch.nn.Module):
         feat_sound = self.net_sound(mag)
         feat_sound = activate(feat_sound, args.sound_activation)
 
-        # 2. forward net_frame -> (B, C, HI/16, WI/16)
+        # 2. forward net_frame -> (B, C, HI/16, WI/16) -> resize to input resolution
         feat_frames = self.net_frame.forward_multiframe(frames)
         feat_frames = activate(feat_frames, args.img_activation)
-
-        # 3. sound synthesizer -> (B, HI/16, WI/16, HS, WS)
+        if feat_frames.dim() == 4:
+            target_hw = int(getattr(args, 'imgSize', 224))
+            feat_frames = F.interpolate(
+                feat_frames,
+                size=(target_hw, target_hw),
+                mode='bilinear',
+                align_corners=False)
+        
+        # 3. sound synthesizer -> (B, target_H, target_W, HS, WS)
         pred_masks = self.net_synthesizer.forward_pixelwise(feat_frames, feat_sound)
         pred_masks = activate(pred_masks, args.output_activation)
 
