@@ -89,6 +89,13 @@ Visual metrics (SDR/SIR/SAR) are printed to stdout and logged into the checkpoin
 
 - `ckpt/visualization/<instrumentA>-<idA>+<instrumentB>-<idB>/` holds per-sample PNGs, audio snippets, and `meta.json` describing the prediction grid.
 - `viz.py` provides helper utilities to compile those results into lightweight HTML reports (`HTMLVisualizer`).
+- To browse any generated HTML (from `viz.py` or `demo.py`) with working relative paths, spin up a tiny static server from the folder that contains the HTML:
+  ```bash
+  cd ckpt/test_upsample_224
+  python3 -m http.server 8000
+  # visit http://localhost:8000/demo_fixed.html
+  ```
+  Serving the files avoids browser security restrictions around `file://` URLs and guarantees the pixel-level audio requests resolve correctly.
 
 ## Tips & Troubleshooting
 
