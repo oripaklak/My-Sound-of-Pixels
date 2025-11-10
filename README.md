@@ -1,6 +1,6 @@
 # My Sound of Pixels
 
-Sound-of-Pixels separates a musical mixture into its constituent instruments by learning a joint audio-visual representation on the [MUSIC dataset](https://sound-of-pixels.csail.mit.edu/). This repo contains the training/evaluation code (PyTorch), dataset utilities, visualization helpers, and an HTML demo generator for showcasing pixel-level audio predictions.
+Sound-of-Pixels separates a musical mixture into its constituent instruments by learning a joint audio-visual representation on the [MUSIC dataset](https://sound-of-pixels.csail.mit.edu/). This repo contains the training/evaluation code (PyTorch), dataset utilities, and visualization helpers for examining pixel-level audio predictions.
 
 ## Quick Start
 
@@ -22,7 +22,7 @@ My-Sound-of-Pixels/
 ├── models/               # UNet (sound), ResNet (frames), synthesizer heads
 ├── scripts/              # Training / testing helper scripts
 ├── utils.py, viz.py      # STFT helpers, logging, HTML visualizer
-├── ckpt/                 # Checkpoints, visualizations, demo artifacts
+├── ckpt/                 # Checkpoints, visualizations, generated artifacts
 └── data/*.csv            # Lists of audio/video pairs used for each split
 ```
 
@@ -89,11 +89,11 @@ Visual metrics (SDR/SIR/SAR) are printed to stdout and logged into the checkpoin
 
 - `ckpt/visualization/<instrumentA>-<idA>+<instrumentB>-<idB>/` holds per-sample PNGs, audio snippets, and `meta.json` describing the prediction grid.
 - `viz.py` provides helper utilities to compile those results into lightweight HTML reports (`HTMLVisualizer`).
-- To browse any generated HTML (from `viz.py` or `demo.py`) with working relative paths, spin up a tiny static server from the folder that contains the HTML:
+- To browse any generated HTML from `viz.py` with working relative paths, spin up a tiny static server from the folder that contains the HTML:
   ```bash
   cd ckpt/test_upsample_224
   python3 -m http.server 8000
-  # visit http://localhost:8000/demo_fixed.html
+  # visit http://localhost:8000/index.html
   ```
   Serving the files avoids browser security restrictions around `file://` URLs and guarantees the pixel-level audio requests resolve correctly.
 
