@@ -85,17 +85,6 @@ Results are written to `ckpt/<id>/test/…`, including:
 
 Visual metrics (SDR/SIR/SAR) are printed to stdout and logged into the checkpoint directory.
 
-## Interactive Demo
-
-After a test run finishes, build an HTML explorer that lets you click on image pixels and audition the corresponding audio slice:
-
-```bash
-python demo.py ckpt/test --output demo.html
-# or leave --output unset to save demo.html inside the root folder
-```
-
-Each child directory under the provided `root` must contain a `pred audio/` folder populated with files named `pred{row}x{col}.wav`. The script infers the grid resolution from these filenames and uses the directory suffix (text after the last `-`) as the YouTube video ID for the embedded player. Open the generated HTML file in a browser and toggle “Enable audio grid” to start clicking pixels.
-
 ## Visualization Assets
 
 - `ckpt/visualization/<instrumentA>-<idA>+<instrumentB>-<idB>/` holds per-sample PNGs, audio snippets, and `meta.json` describing the prediction grid.
