@@ -1,0 +1,21 @@
+{
+  "sources": [
+    {
+      "id": "XvnFhocZ6qM",
+      "start": 102.97,
+      "end": 108.91,
+      "center_frame": 848,
+      "video_duration": 212.0
+    },
+    {
+      "id": "FoOVn7MACAE",
+      "start": 108.47,
+      "end": 114.41,
+      "center_frame": 892,
+      "video_duration": 223.12
+    }
+  ],
+  "audio_duration": 5.94,
+  "frame_rate": 8.0,
+  "sample_rate": 11025
+}
